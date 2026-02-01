@@ -3,7 +3,13 @@ import { Scene } from "phaser";
 export class Game extends Scene {
     player: Phaser.Physics.Arcade.Sprite;
     cursors: Phaser.Types.Input.Keyboard.CursorKeys;
-    private worldLayer: Phaser.Tilemaps.TilemapLayer; // <--- Adicione isto aqui!
+    private worldLayer: Phaser.Tilemaps.TilemapLayer;
+    private dustEmitter: Phaser.GameObjects.Particles.ParticleEmitter;
+    private wasInAir: boolean = false;
+    private dustTimer: number = 0;
+
+    // 1. Variável de controle para o Pulo Duplo
+    private canDoubleJump: boolean = false;
 
     constructor() {
         super("Game");
@@ -12,45 +18,31 @@ export class Game extends Scene {
     create() {
         // 1. Criar o Mapa
         const map = this.make.tilemap({ key: "mapa_fase1" });
-
-        // 2. Adicionar o Tileset (o nome do tileset em terrain.tsx é 'terrain' e a key da imagem carregada no Preloader é 'terrain-tiles')
         const tileset = map.addTilesetImage("terrain", "terrain-tiles");
-        const tilesetBlue = map.addTilesetImage("Blue back", "blue-img"); // Certifique-se que carregou 'blue-img' no Preloader
+        const tilesetBlue = map.addTilesetImage("Blue back", "blue-img");
 
         this.cursors = this.input.keyboard!.createCursorKeys();
 
-        // 3. Criar as Camadas (Use os nomes exatos das suas Layers no Tiled)
+        // 2. Criar as Camadas
         const bgLayer = map.createLayer("background", tilesetBlue!, 0, 0);
-        this.worldLayer = map.createLayer("world", tileset!, 0, 0)!; // bgLayer?.setScrollFactor(0.5); // O fundo se move na metade da velocidade (Parallax)
+        this.worldLayer = map.createLayer("world", tileset!, 0, 0)!;
         this.worldLayer.setCollisionByExclusion([-1]);
 
         this.worldLayer.forEachTile((tile) => {
-            // Para descobrir o ID, você pode dar um console.log(tile.index) aqui
-
             if (tile.properties.through) {
-                // Permite pular através dele, mas ficar em cima
                 tile.setCollision(false, false, true, false);
-                tile.alpha = 1; // Garante que está visível
-                tile.visible = true; // Garante que não foi escondido
+                tile.alpha = 1;
+                tile.visible = true;
             }
         });
 
-        // 4. Ativar Colisão no Chão
-        // Se você usou a propriedade 'collides' no Tiled:
-        // worldLayer?.setCollisionByProperty({ collides: true });
-        // Ou se quiser que tudo que não seja vazio colida:
-        // worldLayer!.setCollisionByExclusion([-1]);
-
         if (bgLayer) {
-            bgLayer.setDepth(-1); // Garante que ele fique no "fundo do fundo"
-            bgLayer.setAlpha(1); // Garante que não esteja transparente
+            bgLayer.setDepth(-2);
+            bgLayer.setAlpha(1);
         }
-        console.log("Tiles no background:", bgLayer?.getTilesWithin().length);
 
-        // 5. Spawn do Player (usando o ponto que você criou na Object Layer)
+        // 3. Spawn do Player
         const spawnPoint = map.findObject("player", (obj) => {
-            console.log(obj);
-
             return obj.name === "PlayerSpawn";
         });
 
@@ -61,11 +53,12 @@ export class Game extends Scene {
         );
 
         this.player.body?.setSize(18, 25);
-        // Física do Player
         this.player.setCollideWorldBounds(true);
         this.physics.add.collider(this.player, this.worldLayer!);
 
-        // 6. Câmera
+        this.player.setDepth(2);
+
+        // 4. Câmera
         this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
         this.cameras.main.setBounds(
             0,
@@ -73,8 +66,9 @@ export class Game extends Scene {
             map.widthInPixels,
             map.heightInPixels,
         );
+        this.cameras.main.setZoom(2);
 
-        // 7. Criar Animação do Morango
+        // 5. Animações
         this.anims.create({
             key: "strawberry_idle",
             frames: this.anims.generateFrameNumbers("strawberry", {
@@ -93,9 +87,9 @@ export class Game extends Scene {
             }),
             frameRate: 20,
             repeat: -1,
+            // frameRate aleatório ou repeat delay pode adicionar variedade, mas simples é bom
         });
 
-        // Animação Correndo
         this.anims.create({
             key: "run",
             frames: this.anims.generateFrameNumbers("player_run", {
@@ -106,14 +100,12 @@ export class Game extends Scene {
             repeat: -1,
         });
 
-        // Animação Pulando (Geralmente 1 frame só ou poucos)
         this.anims.create({
             key: "jump",
             frames: [{ key: "player_jump", frame: 0 }],
             frameRate: 20,
         });
 
-        // Animação Caindo
         this.anims.create({
             key: "fall",
             frames: [{ key: "player_fall", frame: 0 }],
@@ -127,64 +119,75 @@ export class Game extends Scene {
         });
 
         this.anims.create({
+            key: "double_jump",
+            frames: this.anims.generateFrameNumbers("player_double_jump", {
+                start: 0,
+                end: 6,
+            }),
+            frameRate: 20,
+            repeat: 0,
+        });
+
+        this.anims.create({
             key: "collected",
             frames: this.anims.generateFrameNumbers("collected", {
                 start: 0,
                 end: 6,
             }),
             frameRate: 20,
-            repeat: 0, // Roda apenas uma vez
+            repeat: 0,
         });
 
-        // 8. Colocar os Morangos da Object Layer
+        // 6. Colecionáveis
         const fruits = this.physics.add.group({ allowGravity: false });
         const fruitPoints = map.filterObjects(
             "collectibles",
             (obj) => obj.name !== "Strawberry",
         );
-        console.log(fruitPoints);
 
         fruitPoints?.forEach((point) => {
             const f = fruits.create(point.x, point.y, "strawberry");
             f.play("strawberry_idle");
-
-            // --- AJUSTE DA HITBOX AQUI ---
-            // O morango é pequeno, então uma caixa de 14x14 costuma servir bem
             f.body?.setSize(14, 14);
-
-            // Centraliza a caixa no desenho (ajuste os valores se precisar subir ou descer)
             f.body?.setOffset(9, 9);
         });
 
         this.physics.add.overlap(this.player, fruits, (_p, f) => {
             const fruit = f as Phaser.Physics.Arcade.Sprite;
-            console.log(fruit);
-
-            // 1. Impede colisões extras enquanto a animação roda
-            if (fruit.body) {
-                fruit.body.enable = false;
-            }
-
-            // 2. Toca a animação de coleta
+            if (fruit.body) fruit.body.enable = false;
             fruit.play("collected");
-
-            // 3. Quando a animação terminar, aí sim removemos o objeto do jogo
             fruit.on("animationcomplete", () => {
                 fruit.destroy();
             });
-
-            // Aqui você pode disparar sons ou aumentar o score
-            console.log("Morango coletado!");
         });
 
-        this.cameras.main.setZoom(2);
+        // 7. CONFIGURAÇÃO DE PARTÍCULAS
+        const dustParticles = this.add.particles(0, 0, "dust", {
+            lifespan: 300,
+            scale: { start: 0.6, end: 0 },
+            alpha: { start: 0.6, end: 0 },
+            speedY: { min: -20, max: -5 },
+            speedX: { min: -5, max: 5 },
+            frequency: -1, // Manual
+            blendMode: "NORMAL",
+        });
+
+        this.dustEmitter = dustParticles;
+        this.dustEmitter.startFollow(this.player);
+        this.dustEmitter.setDepth(1);
     }
 
     update() {
         const speed = 160;
         const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
+        const isGrounded = playerBody.blocked.down;
 
-        // 1. Lógica de Movimento Horizontal
+        // Resetar Double Jump ao tocar no chão
+        if (isGrounded) {
+            this.canDoubleJump = true;
+        }
+
+        // --- 1. MOVIMENTO (Física) ---
         if (this.cursors.left.isDown) {
             this.player.setVelocityX(-speed);
             this.player.setFlipX(true);
@@ -195,25 +198,84 @@ export class Game extends Scene {
             this.player.setVelocityX(0);
         }
 
-        // 2. Lógica de Pulo
-        if (this.cursors.up.isDown && playerBody.blocked.down) {
-            this.player.setVelocityY(-350);
-        }
-        if (playerBody.velocity.y < 0 && !this.cursors.up.isDown) {
-            // Multiplicamos por 0.8 para dar uma freada suave na subida
-            this.player.setVelocityY(playerBody.velocity.y * 0.8);
+        // --- 2. PULO E DOUBLE JUMP ---
+        // Usamos JustDown para evitar pulo contínuo e controlar o pulo duplo
+        if (Phaser.Input.Keyboard.JustDown(this.cursors.up)) {
+            if (isGrounded) {
+                // PULO NORMAL (Reduzido em ~25%)
+                this.player.setVelocityY(-260);
+
+                // Efeito Poeira Pulo
+                this.dustEmitter.speedX = { min: -30, max: 30 };
+                this.dustEmitter.speedY = { min: -10, max: 0 };
+                this.dustEmitter.followOffset.set(0, 12);
+                this.dustEmitter.explode(8);
+            } else if (this.canDoubleJump) {
+                // DOUBLE JUMP (Reduzido proporcionalmente)
+                this.player.setVelocityY(-230);
+                this.canDoubleJump = false; // Gasta o pulo duplo
+
+                // Toca a animação aqui (será protegida na seção 4)
+                this.player.play("double_jump", true);
+
+                // Efeito sutil de poeira no ar (opcional)
+                this.dustEmitter.speedX = { min: -15, max: 15 };
+                this.dustEmitter.speedY = { min: 0, max: 10 };
+                this.dustEmitter.followOffset.set(0, 12);
+                this.dustEmitter.explode(5);
+            }
         }
 
-        // 3. MÁQUINA DE ANIMAÇÕES
-        if (!playerBody.blocked.down) {
-            // Se estiver no ar...
-            if (playerBody.velocity.y < 0) {
-                this.player.anims.play("jump", true);
-            } else {
-                this.player.anims.play("fall", true);
+        // (Removi a lógica de pulo variável que estava aqui antes)
+
+        // --- 3. LÓGICA DE PAREDE ---
+        const isTouchingWall =
+            (playerBody.blocked.left || playerBody.blocked.right) &&
+            !isGrounded;
+        const isFalling = playerBody.velocity.y > 0;
+        let isWallSliding = false;
+
+        if (isTouchingWall && isFalling) {
+            this.player.setVelocityY(50); // Slide
+            isWallSliding = true;
+
+            // Wall Jump Input
+            if (Phaser.Input.Keyboard.JustDown(this.cursors.up)) {
+                const jumpDirection = playerBody.blocked.left ? 1 : -1;
+                this.player.setVelocityX(speed * 1.5 * jumpDirection);
+                // Wall Jump reduzido
+                this.player.setVelocityY(-230);
+                this.player.setFlipX(jumpDirection === -1);
+
+                // Recupera o Double Jump ao fazer Wall Jump? (Geralmente sim em jogos como Celeste)
+                // Se não quiser, comente a linha abaixo.
+                this.canDoubleJump = true;
+
+                this.dustEmitter.speedX = { min: -20, max: 20 };
+                this.dustEmitter.explode(4);
+                isWallSliding = false;
+            }
+        }
+
+        // --- 4. ANIMAÇÕES (CORRIGIDO) ---
+        // Verificamos se está no meio do Double Jump para não interromper
+        const isDoubleJumping =
+            this.player.anims.currentAnim?.key === "double_jump" &&
+            this.player.anims.isPlaying;
+
+        if (isWallSliding) {
+            this.player.anims.play("wall_jump", true);
+        } else if (!isGrounded) {
+            // Se estiver rodando o Double Jump, só trocamos se ele acabar
+            if (!isDoubleJumping) {
+                if (playerBody.velocity.y < 0) {
+                    this.player.anims.play("jump", true);
+                } else {
+                    this.player.anims.play("fall", true);
+                }
             }
         } else {
-            // Se estiver no chão...
+            // Está no chão
             if (playerBody.velocity.x !== 0) {
                 this.player.anims.play("run", true);
             } else {
@@ -221,42 +283,42 @@ export class Game extends Scene {
             }
         }
 
-        const worldLayer = this.worldLayer; // Certifique-se de ter acesso à layer
+        // --- 5. PARTÍCULAS (Chão) ---
 
-        // 1. Detectar se há parede sem precisar apertar botão
-        // Checamos um ponto 2 pixels para fora da hitbox do sapo
-        const wallLeft = worldLayer.getTileAtWorldXY(
-            this.player.x - 0,
-            this.player.y,
-        );
+        // A. Impacto ao Cair (LANDING)
+        if (isGrounded && this.wasInAir) {
+            this.dustEmitter.speedX = { min: -50, max: 50 };
+            this.dustEmitter.speedY = { min: -20, max: 0 };
 
-        // Um tile conta como parede se ele existir e tiver colisão ativa
-        const touchingLeft =
-            playerBody.blocked.left || playerBody.touching.left;
-        const touchingRight =
-            playerBody.blocked.right || playerBody.touching.right;
-        const isTouchingWall = touchingLeft || touchingRight;
+            // Esquerda
+            this.dustEmitter.followOffset.set(-10, 12);
+            this.dustEmitter.explode(10);
 
-        const isFalling = playerBody.velocity.y > 0;
-
-        // 2. Lógica de Escorregar (Passiva)
-        if (isTouchingWall && !playerBody.blocked.down && isFalling) {
-            this.player.setVelocityY(50); // Velocidade lenta de slide
-
-            this.player.anims.play("wall_jump", true); // Usa o frame de parede
-            if (Phaser.Input.Keyboard.JustDown(this.cursors.up)) {
-                // Se estou na parede da esquerda, pulo para a DIREITA (1)
-                // Se estou na parede da direita, pulo para a ESQUERDA (-1)
-                const jumpDirection = wallLeft ? 1 : -1;
-
-                // Aplica o impulso diagonal
-                this.player.setVelocityX(speed * 1.5 * jumpDirection);
-                this.player.setVelocityY(-300);
-
-                // Inverte o sprite para olhar para onde está pulando
-                this.player.setFlipX(jumpDirection === -1);
-            }
+            // Direita
+            this.dustEmitter.followOffset.set(10, 12);
+            this.dustEmitter.explode(10);
         }
+
+        // B. Correndo
+        const isRunningFast = Math.abs(playerBody.velocity.x) > 10;
+
+        if (isGrounded && isRunningFast) {
+            this.dustEmitter.speedX = { min: -5, max: 5 };
+            this.dustEmitter.speedY = { min: -20, max: -5 };
+
+            const xOffset = this.player.flipX ? 8 : -8;
+            this.dustEmitter.followOffset.set(xOffset, 12);
+
+            this.dustTimer++;
+            if (this.dustTimer >= 6) {
+                this.dustEmitter.emitParticle(1);
+                this.dustTimer = 0;
+            }
+        } else {
+            this.dustTimer = 0;
+        }
+
+        // Atualiza o estado
+        this.wasInAir = !isGrounded;
     }
 }
-

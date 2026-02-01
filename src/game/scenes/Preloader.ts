@@ -43,6 +43,8 @@ export class Preloader extends Scene {
             frameHeight: 32,
         });
 
+        this.load.image("dust", "Dust Particle.png");
+
         // 4. O Spritesheet do Player (Sapinho/Mascarado)
         this.load.spritesheet("player_idle", "ninja/Idle (32x32).png", {
             frameWidth: 32,
@@ -60,10 +62,22 @@ export class Preloader extends Scene {
             frameWidth: 32,
             frameHeight: 32,
         });
-        this.load.spritesheet("player_wall_jump", "ninja/Wall Jump (32x32).png", {
-            frameWidth: 32,
-            frameHeight: 32,
-        });
+        this.load.spritesheet(
+            "player_wall_jump",
+            "ninja/Wall Jump (32x32).png",
+            {
+                frameWidth: 32,
+                frameHeight: 32,
+            },
+        );
+        this.load.spritesheet(
+            "player_double_jump",
+            "ninja/Double Jump (32x32).png",
+            {
+                frameWidth: 32,
+                frameHeight: 32,
+            },
+        );
     }
 
     create() {
