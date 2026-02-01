@@ -78,6 +78,11 @@ export class Preloader extends Scene {
                 frameHeight: 32,
             },
         );
+
+        this.load.audio("jump_sfx", "sounds/jump.wav");
+        this.load.audio("pickup_sfx", "sounds/pickup.wav");
+        this.load.audio("step_sfx", "sounds/step.wav");
+        this.load.audio("slide_sfx", "sounds/slide.wav");
     }
 
     create() {

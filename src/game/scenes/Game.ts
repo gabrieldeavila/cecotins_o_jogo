@@ -8,8 +8,20 @@ export class Game extends Scene {
     private wasInAir: boolean = false;
     private dustTimer: number = 0;
 
+    // Novo timer para controlar o ritmo dos passos
+    private stepTimer: number = 0;
+
+    // Timer modificado para funcionar como contador de intervalo (igual passos)
+    private wallSlideTimer: number = 0;
+
     // 1. Variável de controle para o Pulo Duplo
     private canDoubleJump: boolean = false;
+
+    // 2. Propriedades de Som
+    private jumpSound: Phaser.Sound.BaseSound;
+    private collectSound: Phaser.Sound.BaseSound;
+    private stepSound: Phaser.Sound.BaseSound;
+    private slideSound: Phaser.Sound.BaseSound;
 
     constructor() {
         super("Game");
@@ -68,7 +80,18 @@ export class Game extends Scene {
         );
         this.cameras.main.setZoom(2);
 
-        // 5. Animações
+        // 5. Inicializar Sons
+        this.jumpSound = this.sound.add("jump_sfx", { volume: 0.5 });
+        this.collectSound = this.sound.add("pickup_sfx", { volume: 0.4 });
+        this.stepSound = this.sound.add("step_sfx", { volume: 0.3 });
+
+        // MUDANÇA: Removi o loop: true. Vamos controlar manualmente.
+        this.slideSound = this.sound.add("slide_sfx", {
+            volume: 0.2,
+            loop: false,
+        });
+
+        // 6. Animações
         this.anims.create({
             key: "strawberry_idle",
             frames: this.anims.generateFrameNumbers("strawberry", {
@@ -87,7 +110,6 @@ export class Game extends Scene {
             }),
             frameRate: 20,
             repeat: -1,
-            // frameRate aleatório ou repeat delay pode adicionar variedade, mas simples é bom
         });
 
         this.anims.create({
@@ -138,7 +160,7 @@ export class Game extends Scene {
             repeat: 0,
         });
 
-        // 6. Colecionáveis
+        // 7. Colecionáveis
         const fruits = this.physics.add.group({ allowGravity: false });
         const fruitPoints = map.filterObjects(
             "collectibles",
@@ -155,13 +177,16 @@ export class Game extends Scene {
         this.physics.add.overlap(this.player, fruits, (_p, f) => {
             const fruit = f as Phaser.Physics.Arcade.Sprite;
             if (fruit.body) fruit.body.enable = false;
+
+            this.collectSound.play();
+
             fruit.play("collected");
             fruit.on("animationcomplete", () => {
                 fruit.destroy();
             });
         });
 
-        // 7. CONFIGURAÇÃO DE PARTÍCULAS
+        // 8. CONFIGURAÇÃO DE PARTÍCULAS
         const dustParticles = this.add.particles(0, 0, "dust", {
             lifespan: 300,
             scale: { start: 0.6, end: 0 },
@@ -182,7 +207,6 @@ export class Game extends Scene {
         const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
         const isGrounded = playerBody.blocked.down;
 
-        // Resetar Double Jump ao tocar no chão
         if (isGrounded) {
             this.canDoubleJump = true;
         }
@@ -199,26 +223,21 @@ export class Game extends Scene {
         }
 
         // --- 2. PULO E DOUBLE JUMP ---
-        // Usamos JustDown para evitar pulo contínuo e controlar o pulo duplo
         if (Phaser.Input.Keyboard.JustDown(this.cursors.up)) {
             if (isGrounded) {
-                // PULO NORMAL (Reduzido em ~25%)
                 this.player.setVelocityY(-260);
+                this.jumpSound.play();
 
-                // Efeito Poeira Pulo
                 this.dustEmitter.speedX = { min: -30, max: 30 };
                 this.dustEmitter.speedY = { min: -10, max: 0 };
                 this.dustEmitter.followOffset.set(0, 12);
                 this.dustEmitter.explode(8);
             } else if (this.canDoubleJump) {
-                // DOUBLE JUMP (Reduzido proporcionalmente)
                 this.player.setVelocityY(-230);
-                this.canDoubleJump = false; // Gasta o pulo duplo
-
-                // Toca a animação aqui (será protegida na seção 4)
+                this.canDoubleJump = false;
+                this.jumpSound.play({ detune: 200 });
                 this.player.play("double_jump", true);
 
-                // Efeito sutil de poeira no ar (opcional)
                 this.dustEmitter.speedX = { min: -15, max: 15 };
                 this.dustEmitter.speedY = { min: 0, max: 10 };
                 this.dustEmitter.followOffset.set(0, 12);
@@ -226,9 +245,7 @@ export class Game extends Scene {
             }
         }
 
-        // (Removi a lógica de pulo variável que estava aqui antes)
-
-        // --- 3. LÓGICA DE PAREDE ---
+        // --- 3. LÓGICA DE PAREDE (Estilo "Passos") ---
         const isTouchingWall =
             (playerBody.blocked.left || playerBody.blocked.right) &&
             !isGrounded;
@@ -236,29 +253,38 @@ export class Game extends Scene {
         let isWallSliding = false;
 
         if (isTouchingWall && isFalling) {
-            this.player.setVelocityY(50); // Slide
+            this.player.setVelocityY(50); // Velocidade de deslize
             isWallSliding = true;
 
-            // Wall Jump Input
+            this.wallSlideTimer++;
+            if (this.wallSlideTimer >= 25) {
+                this.slideSound.play({
+                    volume: 0.1,
+                    detune: Phaser.Math.Between(-50, 50),
+                });
+                this.wallSlideTimer = 0;
+            }
+
             if (Phaser.Input.Keyboard.JustDown(this.cursors.up)) {
                 const jumpDirection = playerBody.blocked.left ? 1 : -1;
                 this.player.setVelocityX(speed * 1.5 * jumpDirection);
-                // Wall Jump reduzido
                 this.player.setVelocityY(-230);
                 this.player.setFlipX(jumpDirection === -1);
 
-                // Recupera o Double Jump ao fazer Wall Jump? (Geralmente sim em jogos como Celeste)
-                // Se não quiser, comente a linha abaixo.
+                this.jumpSound.play();
                 this.canDoubleJump = true;
 
                 this.dustEmitter.speedX = { min: -20, max: 20 };
                 this.dustEmitter.explode(4);
+
                 isWallSliding = false;
             }
+        } else {
+            // Reseta o timer para estar "pronto" para tocar assim que encostar na parede
+            this.wallSlideTimer = 10;
         }
 
-        // --- 4. ANIMAÇÕES (CORRIGIDO) ---
-        // Verificamos se está no meio do Double Jump para não interromper
+        // --- 4. ANIMAÇÕES ---
         const isDoubleJumping =
             this.player.anims.currentAnim?.key === "double_jump" &&
             this.player.anims.isPlaying;
@@ -266,7 +292,6 @@ export class Game extends Scene {
         if (isWallSliding) {
             this.player.anims.play("wall_jump", true);
         } else if (!isGrounded) {
-            // Se estiver rodando o Double Jump, só trocamos se ele acabar
             if (!isDoubleJumping) {
                 if (playerBody.velocity.y < 0) {
                     this.player.anims.play("jump", true);
@@ -275,7 +300,6 @@ export class Game extends Scene {
                 }
             }
         } else {
-            // Está no chão
             if (playerBody.velocity.x !== 0) {
                 this.player.anims.play("run", true);
             } else {
@@ -283,29 +307,21 @@ export class Game extends Scene {
             }
         }
 
-        // --- 5. PARTÍCULAS (Chão) ---
-
-        // A. Impacto ao Cair (LANDING)
+        // --- 5. PARTÍCULAS E SONS (Chão) ---
         if (isGrounded && this.wasInAir) {
             this.dustEmitter.speedX = { min: -50, max: 50 };
             this.dustEmitter.speedY = { min: -20, max: 0 };
-
-            // Esquerda
             this.dustEmitter.followOffset.set(-10, 12);
             this.dustEmitter.explode(10);
-
-            // Direita
             this.dustEmitter.followOffset.set(10, 12);
             this.dustEmitter.explode(10);
         }
 
-        // B. Correndo
         const isRunningFast = Math.abs(playerBody.velocity.x) > 10;
 
         if (isGrounded && isRunningFast) {
             this.dustEmitter.speedX = { min: -5, max: 5 };
             this.dustEmitter.speedY = { min: -20, max: -5 };
-
             const xOffset = this.player.flipX ? 8 : -8;
             this.dustEmitter.followOffset.set(xOffset, 12);
 
@@ -314,11 +330,21 @@ export class Game extends Scene {
                 this.dustEmitter.emitParticle(1);
                 this.dustTimer = 0;
             }
+
+            this.stepTimer++;
+            if (this.stepTimer >= 20) {
+                this.stepSound.play({
+                    volume: 0.3,
+                    detune: Phaser.Math.Between(-100, 100),
+                });
+                this.stepTimer = 0;
+            }
         } else {
             this.dustTimer = 0;
+            this.stepTimer = 15;
         }
 
-        // Atualiza o estado
         this.wasInAir = !isGrounded;
     }
 }
+
