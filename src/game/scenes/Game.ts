@@ -78,7 +78,16 @@ export class Game extends Scene {
             map.widthInPixels,
             map.heightInPixels,
         );
-        this.cameras.main.setZoom(2);
+
+        const mapHeight = map.heightInPixels;
+        const mapWidth = map.widthInPixels;
+        const windowWidth = window.innerWidth
+        const windowHeight = window.innerHeight;
+
+        const zoomX = windowWidth / mapWidth;
+        const zoomY = windowHeight / mapHeight;
+
+        this.cameras.main.setZoom(Math.max(zoomX, zoomY));
 
         // 5. Inicializar Sons
         this.jumpSound = this.sound.add("jump_sfx", { volume: 0.5 });
@@ -311,9 +320,9 @@ export class Game extends Scene {
         if (isGrounded && this.wasInAir) {
             this.dustEmitter.speedX = { min: -50, max: 50 };
             this.dustEmitter.speedY = { min: -20, max: 0 };
-            this.dustEmitter.followOffset.set(-10, 12);
+            this.dustEmitter.followOffset.set(-15, 12);
             this.dustEmitter.explode(10);
-            this.dustEmitter.followOffset.set(10, 12);
+            this.dustEmitter.followOffset.set(15, 12);
             this.dustEmitter.explode(10);
         }
 
