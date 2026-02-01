@@ -83,6 +83,7 @@ export class Preloader extends Scene {
         this.load.audio("pickup_sfx", "sounds/pickup.wav");
         this.load.audio("step_sfx", "sounds/step.wav");
         this.load.audio("slide_sfx", "sounds/slide.wav");
+        this.load.audio("theme_music", "music/theme.mp3");
     }
 
     create() {

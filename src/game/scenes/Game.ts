@@ -22,6 +22,7 @@ export class Game extends Scene {
     private collectSound: Phaser.Sound.BaseSound;
     private stepSound: Phaser.Sound.BaseSound;
     private slideSound: Phaser.Sound.BaseSound;
+    private bgMusic: Phaser.Sound.BaseSound; // <--- Propriedade da Música
 
     constructor() {
         super("Game");
@@ -81,7 +82,7 @@ export class Game extends Scene {
 
         const mapHeight = map.heightInPixels;
         const mapWidth = map.widthInPixels;
-        const windowWidth = window.innerWidth
+        const windowWidth = window.innerWidth;
         const windowHeight = window.innerHeight;
 
         const zoomX = windowWidth / mapWidth;
@@ -94,11 +95,26 @@ export class Game extends Scene {
         this.collectSound = this.sound.add("pickup_sfx", { volume: 0.4 });
         this.stepSound = this.sound.add("step_sfx", { volume: 0.3 });
 
-        // MUDANÇA: Removi o loop: true. Vamos controlar manualmente.
         this.slideSound = this.sound.add("slide_sfx", {
             volume: 0.2,
             loop: false,
         });
+
+        // --- MÚSICA DE FUNDO ---
+        // Lembre-se de carregar "theme_music" no Preloader
+        this.bgMusic = this.sound.add("theme_music", {
+            volume: 0.1,
+            loop: true,
+        });
+
+        // Toca a música (se o navegador bloquear autoplay, o Phaser lida com isso no primeiro clique)
+        if (!this.sound.locked) {
+            this.bgMusic.play();
+        } else {
+            this.sound.once(Phaser.Sound.Events.UNLOCKED, () => {
+                this.bgMusic.play();
+            });
+        }
 
         // 6. Animações
         this.anims.create({
@@ -265,11 +281,13 @@ export class Game extends Scene {
             this.player.setVelocityY(50); // Velocidade de deslize
             isWallSliding = true;
 
+            // --- SOM DE DESLIZE (Lógica igual a de caminhar) ---
             this.wallSlideTimer++;
-            if (this.wallSlideTimer >= 25) {
+            // Toca a cada 15 frames (4x por segundo). Ajuste se o som for muito curto.
+            if (this.wallSlideTimer >= 15) {
                 this.slideSound.play({
-                    volume: 0.1,
-                    detune: Phaser.Math.Between(-50, 50),
+                    volume: 0.2,
+                    detune: Phaser.Math.Between(-50, 50), // Pequena variação para não ficar robótico
                 });
                 this.wallSlideTimer = 0;
             }
@@ -287,6 +305,7 @@ export class Game extends Scene {
                 this.dustEmitter.explode(4);
 
                 isWallSliding = false;
+                // Não precisa parar o som pq ele não é loop, ele só para de ser disparado
             }
         } else {
             // Reseta o timer para estar "pronto" para tocar assim que encostar na parede

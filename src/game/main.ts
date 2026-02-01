@@ -15,14 +15,14 @@ const config: Phaser.Types.Core.GameConfig = {
     backgroundColor: "#028af8",
     scene: [Boot, Preloader, MainMenu, MainGame, GameOver],
     render: {
-        pixelArt: true, 
+        pixelArt: true,
         antialias: false,
     },
     physics: {
         default: "arcade",
         arcade: {
             gravity: { x: 0, y: 600 }, // Gravidade para o boneco cair
-            // debug: true, // Deixe true por enquanto para ver as "caixas" de colisão
+            debug: import.meta.env.DEV,
         },
     },
 };
