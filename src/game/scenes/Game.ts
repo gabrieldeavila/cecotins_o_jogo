@@ -26,9 +26,8 @@ export class Game extends Scene {
 
         this.worldLayer.forEachTile((tile) => {
             // Para descobrir o ID, você pode dar um console.log(tile.index) aqui
-            console.log(tile.properties, tile.index);
 
-            if (tile.properties.through || tile.index === 41) {
+            if (tile.properties.through) {
                 // Permite pular através dele, mas ficar em cima
                 tile.setCollision(false, false, true, false);
                 tile.alpha = 1; // Garante que está visível
@@ -61,7 +60,7 @@ export class Game extends Scene {
             "player_idle",
         );
 
-        this.player.body?.setSize(25, 25);
+        this.player.body?.setSize(18, 25);
         // Física do Player
         this.player.setCollideWorldBounds(true);
         this.physics.add.collider(this.player, this.worldLayer!);
@@ -121,6 +120,22 @@ export class Game extends Scene {
             frameRate: 20,
         });
 
+        this.anims.create({
+            key: "wall_jump",
+            frames: [{ key: "player_wall_jump", frame: 0 }],
+            frameRate: -1,
+        });
+
+        this.anims.create({
+            key: "collected",
+            frames: this.anims.generateFrameNumbers("collected", {
+                start: 0,
+                end: 6,
+            }),
+            frameRate: 20,
+            repeat: 0, // Roda apenas uma vez
+        });
+
         // 8. Colocar os Morangos da Object Layer
         const fruits = this.physics.add.group({ allowGravity: false });
         const fruitPoints = map.filterObjects(
@@ -141,9 +156,25 @@ export class Game extends Scene {
             f.body?.setOffset(9, 9);
         });
 
-        this.physics.add.overlap(this.player, fruits, (p, f) => {
-            (f as Phaser.Physics.Arcade.Sprite).destroy();
-            // Aqui você dispararia o EventBus para o React
+        this.physics.add.overlap(this.player, fruits, (_p, f) => {
+            const fruit = f as Phaser.Physics.Arcade.Sprite;
+            console.log(fruit);
+
+            // 1. Impede colisões extras enquanto a animação roda
+            if (fruit.body) {
+                fruit.body.enable = false;
+            }
+
+            // 2. Toca a animação de coleta
+            fruit.play("collected");
+
+            // 3. Quando a animação terminar, aí sim removemos o objeto do jogo
+            fruit.on("animationcomplete", () => {
+                fruit.destroy();
+            });
+
+            // Aqui você pode disparar sons ou aumentar o score
+            console.log("Morango coletado!");
         });
 
         this.cameras.main.setZoom(2);
@@ -195,27 +226,22 @@ export class Game extends Scene {
         // 1. Detectar se há parede sem precisar apertar botão
         // Checamos um ponto 2 pixels para fora da hitbox do sapo
         const wallLeft = worldLayer.getTileAtWorldXY(
-            this.player.x - 2,
-            this.player.y,
-        );
-        const wallRight = worldLayer.getTileAtWorldXY(
-            this.player.x + this.player.width + 2,
+            this.player.x - 0,
             this.player.y,
         );
 
         // Um tile conta como parede se ele existir e tiver colisão ativa
-        const isTouchingWall =
-            (wallLeft && wallLeft.collides) ||
-            (wallRight && wallRight.collides);
+        const touchingLeft =
+            playerBody.blocked.left || playerBody.touching.left;
+        const touchingRight =
+            playerBody.blocked.right || playerBody.touching.right;
+        const isTouchingWall = touchingLeft || touchingRight;
+
         const isFalling = playerBody.velocity.y > 0;
 
         // 2. Lógica de Escorregar (Passiva)
         if (isTouchingWall && !playerBody.blocked.down && isFalling) {
             this.player.setVelocityY(50); // Velocidade lenta de slide
-
-            // Se o seu sapo olha para o lado oposto da parede enquanto escorrega
-            if (wallLeft) this.player.setFlipX(false);
-            if (wallRight) this.player.setFlipX(true);
 
             this.player.anims.play("wall_jump", true); // Usa o frame de parede
             if (Phaser.Input.Keyboard.JustDown(this.cursors.up)) {
