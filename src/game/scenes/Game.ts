@@ -1,4 +1,4 @@
-import { Scene } from "phaser";
+import Phaser, { Scene } from "phaser";
 
 export class Game extends Scene {
     player: Phaser.Physics.Arcade.Sprite;
@@ -11,7 +11,7 @@ export class Game extends Scene {
     // Novo timer para controlar o ritmo dos passos
     private stepTimer: number = 0;
 
-    // Timer modificado para funcionar como contador de intervalo (igual passos)
+    // Timer para o som de deslizar na parede
     private wallSlideTimer: number = 0;
 
     // 1. Variável de controle para o Pulo Duplo
@@ -22,25 +22,26 @@ export class Game extends Scene {
     private collectSound: Phaser.Sound.BaseSound;
     private stepSound: Phaser.Sound.BaseSound;
     private slideSound: Phaser.Sound.BaseSound;
-    private bgMusic: Phaser.Sound.BaseSound; // <--- Propriedade da Música
+    private bgMusic: Phaser.Sound.BaseSound;
 
     constructor() {
         super("Game");
     }
 
     create() {
-        // 1. Criar o Mapa
+        // --- 1. CRIAR O MAPA ---
         const map = this.make.tilemap({ key: "mapa_fase1" });
         const tileset = map.addTilesetImage("terrain", "terrain-tiles");
         const tilesetBlue = map.addTilesetImage("Blue back", "blue-img");
 
         this.cursors = this.input.keyboard!.createCursorKeys();
 
-        // 2. Criar as Camadas
+        // --- 2. CRIAR AS CAMADAS ---
         const bgLayer = map.createLayer("background", tilesetBlue!, 0, 0);
         this.worldLayer = map.createLayer("world", tileset!, 0, 0)!;
         this.worldLayer.setCollisionByExclusion([-1]);
 
+        // Configura tiles que podem ser atravessados (se houver propriedade 'through')
         this.worldLayer.forEachTile((tile) => {
             if (tile.properties.through) {
                 tile.setCollision(false, false, true, false);
@@ -54,16 +55,16 @@ export class Game extends Scene {
             bgLayer.setAlpha(1);
         }
 
-        // 3. Spawn do Player
+        // --- 3. SPAWN DO PLAYER ---
         const spawnPoint = map.findObject("player", (obj) => {
             return obj.name === "PlayerSpawn";
         });
 
-        this.player = this.physics.add.sprite(
-            spawnPoint!.x!,
-            spawnPoint!.y!,
-            "player_idle",
-        );
+        // Fallback caso não encontre o ponto de spawn no mapa
+        const startX = spawnPoint?.x || 100;
+        const startY = spawnPoint?.y || 300;
+
+        this.player = this.physics.add.sprite(startX, startY, "player_idle");
 
         this.player.body?.setSize(18, 25);
         this.player.setCollideWorldBounds(true);
@@ -71,7 +72,7 @@ export class Game extends Scene {
 
         this.player.setDepth(2);
 
-        // 4. Câmera
+        // --- 4. CÂMERA ---
         this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
         this.cameras.main.setBounds(
             0,
@@ -80,34 +81,29 @@ export class Game extends Scene {
             map.heightInPixels,
         );
 
+        // Zoom automático baseado no tamanho da janela
         const mapHeight = map.heightInPixels;
         const mapWidth = map.widthInPixels;
         const windowWidth = window.innerWidth;
         const windowHeight = window.innerHeight;
-
         const zoomX = windowWidth / mapWidth;
         const zoomY = windowHeight / mapHeight;
-
         this.cameras.main.setZoom(Math.max(zoomX, zoomY));
 
-        // 5. Inicializar Sons
+        // --- 5. SONS ---
         this.jumpSound = this.sound.add("jump_sfx", { volume: 0.5 });
         this.collectSound = this.sound.add("pickup_sfx", { volume: 0.4 });
         this.stepSound = this.sound.add("step_sfx", { volume: 0.3 });
-
         this.slideSound = this.sound.add("slide_sfx", {
             volume: 0.2,
             loop: false,
         });
 
-        // --- MÚSICA DE FUNDO ---
-        // Lembre-se de carregar "theme_music" no Preloader
         this.bgMusic = this.sound.add("theme_music", {
             volume: 0.1,
             loop: true,
         });
 
-        // Toca a música (se o navegador bloquear autoplay, o Phaser lida com isso no primeiro clique)
         if (!this.sound.locked) {
             this.bgMusic.play();
         } else {
@@ -116,7 +112,7 @@ export class Game extends Scene {
             });
         }
 
-        // 6. Animações
+        // --- 6. ANIMAÇÕES ---
         this.anims.create({
             key: "strawberry_idle",
             frames: this.anims.generateFrameNumbers("strawberry", {
@@ -162,14 +158,14 @@ export class Game extends Scene {
         this.anims.create({
             key: "wall_jump",
             frames: [{ key: "player_wall_jump", frame: 0 }],
-            frameRate: -1,
+            frameRate: 20,
         });
 
         this.anims.create({
             key: "double_jump",
             frames: this.anims.generateFrameNumbers("player_double_jump", {
                 start: 0,
-                end: 6,
+                end: 5, // Ajustado para não estourar frames se o spritesheet for menor
             }),
             frameRate: 20,
             repeat: 0,
@@ -185,7 +181,7 @@ export class Game extends Scene {
             repeat: 0,
         });
 
-        // 7. Colecionáveis
+        // --- 7. COLECIONÁVEIS ---
         const fruits = this.physics.add.group({ allowGravity: false });
         const fruitPoints = map.filterObjects(
             "collectibles",
@@ -211,18 +207,17 @@ export class Game extends Scene {
             });
         });
 
-        // 8. CONFIGURAÇÃO DE PARTÍCULAS
-        const dustParticles = this.add.particles(0, 0, "dust", {
+        // --- 8. PARTÍCULAS ---
+        this.dustEmitter = this.add.particles(0, 0, "dust", {
             lifespan: 300,
             scale: { start: 0.6, end: 0 },
             alpha: { start: 0.6, end: 0 },
             speedY: { min: -20, max: -5 },
             speedX: { min: -5, max: 5 },
-            frequency: -1, // Manual
+            frequency: -1, // Emissão manual
             blendMode: "NORMAL",
         });
 
-        this.dustEmitter = dustParticles;
         this.dustEmitter.startFollow(this.player);
         this.dustEmitter.setDepth(1);
     }
@@ -236,7 +231,7 @@ export class Game extends Scene {
             this.canDoubleJump = true;
         }
 
-        // --- 1. MOVIMENTO (Física) ---
+        // --- 1. MOVIMENTO HORIZONTAL ---
         if (this.cursors.left.isDown) {
             this.player.setVelocityX(-speed);
             this.player.setFlipX(true);
@@ -247,8 +242,12 @@ export class Game extends Scene {
             this.player.setVelocityX(0);
         }
 
-        // --- 2. PULO E DOUBLE JUMP ---
+        // --- 2. PULO, PULO DUPLO E WALL JUMP ---
         if (Phaser.Input.Keyboard.JustDown(this.cursors.up)) {
+            const isTouchingWallForJump =
+                (playerBody.blocked.left || playerBody.blocked.right) &&
+                !isGrounded;
+
             if (isGrounded) {
                 this.player.setVelocityY(-260);
                 this.jumpSound.play();
@@ -257,6 +256,18 @@ export class Game extends Scene {
                 this.dustEmitter.speedY = { min: -10, max: 0 };
                 this.dustEmitter.followOffset.set(0, 12);
                 this.dustEmitter.explode(8);
+            } else if (isTouchingWallForJump) {
+                const jumpDirection = playerBody.blocked.left ? 1 : -1;
+
+                this.player.setVelocityX(speed * 1.5 * jumpDirection);
+                this.player.setVelocityY(-260);
+
+                this.player.setFlipX(jumpDirection === -1);
+                this.jumpSound.play();
+                this.canDoubleJump = true;
+
+                this.dustEmitter.speedX = { min: -20, max: 20 };
+                this.dustEmitter.explode(4);
             } else if (this.canDoubleJump) {
                 this.player.setVelocityY(-230);
                 this.canDoubleJump = false;
@@ -270,55 +281,42 @@ export class Game extends Scene {
             }
         }
 
-        // --- 3. LÓGICA DE PAREDE (Estilo "Passos") ---
+        // --- 3. LÓGICA DE WALL SLIDE ---
         const isTouchingWall =
             (playerBody.blocked.left || playerBody.blocked.right) &&
             !isGrounded;
+
         const isFalling = playerBody.velocity.y > 0;
         let isWallSliding = false;
 
         if (isTouchingWall && isFalling) {
-            this.player.setVelocityY(50); // Velocidade de deslize
+            // Desliza devagar
+            this.player.setVelocityY(50);
             isWallSliding = true;
 
-            // --- SOM DE DESLIZE (Lógica igual a de caminhar) ---
+            // Som de deslize
             this.wallSlideTimer++;
-            // Toca a cada 15 frames (4x por segundo). Ajuste se o som for muito curto.
             if (this.wallSlideTimer >= 15) {
                 this.slideSound.play({
                     volume: 0.2,
-                    detune: Phaser.Math.Between(-50, 50), // Pequena variação para não ficar robótico
+                    detune: Phaser.Math.Between(-50, 50),
                 });
                 this.wallSlideTimer = 0;
             }
-
-            if (Phaser.Input.Keyboard.JustDown(this.cursors.up)) {
-                const jumpDirection = playerBody.blocked.left ? 1 : -1;
-                this.player.setVelocityX(speed * 1.5 * jumpDirection);
-                this.player.setVelocityY(-230);
-                this.player.setFlipX(jumpDirection === -1);
-
-                this.jumpSound.play();
-                this.canDoubleJump = true;
-
-                this.dustEmitter.speedX = { min: -20, max: 20 };
-                this.dustEmitter.explode(4);
-
-                isWallSliding = false;
-                // Não precisa parar o som pq ele não é loop, ele só para de ser disparado
-            }
         } else {
-            // Reseta o timer para estar "pronto" para tocar assim que encostar na parede
-            this.wallSlideTimer = 10;
+            this.wallSlideTimer = 10; // Reset para o som tocar rápido na próxima vez
         }
 
-        // --- 4. ANIMAÇÕES ---
+        // --- 4. CONTROLE DAS ANIMAÇÕES ---
         const isDoubleJumping =
             this.player.anims.currentAnim?.key === "double_jump" &&
             this.player.anims.isPlaying;
 
         if (isWallSliding) {
             this.player.anims.play("wall_jump", true);
+            // Ajusta o flip visual para parecer que está de costas para a parede
+            if (playerBody.blocked.left) this.player.setFlipX(true);
+            if (playerBody.blocked.right) this.player.setFlipX(false);
         } else if (!isGrounded) {
             if (!isDoubleJumping) {
                 if (playerBody.velocity.y < 0) {
@@ -328,6 +326,7 @@ export class Game extends Scene {
                 }
             }
         } else {
+            // No chão
             if (playerBody.velocity.x !== 0) {
                 this.player.anims.play("run", true);
             } else {
@@ -335,8 +334,9 @@ export class Game extends Scene {
             }
         }
 
-        // --- 5. PARTÍCULAS E SONS (Chão) ---
+        // --- 5. PARTÍCULAS E SONS DE PASSOS ---
         if (isGrounded && this.wasInAir) {
+            // Impacto no chão
             this.dustEmitter.speedX = { min: -50, max: 50 };
             this.dustEmitter.speedY = { min: -20, max: 0 };
             this.dustEmitter.followOffset.set(-15, 12);
@@ -375,4 +375,3 @@ export class Game extends Scene {
         this.wasInAir = !isGrounded;
     }
 }
-
