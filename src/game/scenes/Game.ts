@@ -19,6 +19,7 @@ export class Game extends Scene {
 
     // 2. Propriedades de Som
     private jumpSound: Phaser.Sound.BaseSound;
+    private fallSound: Phaser.Sound.BaseSound;
     private collectSound: Phaser.Sound.BaseSound;
     private stepSound: Phaser.Sound.BaseSound;
     private slideSound: Phaser.Sound.BaseSound;
@@ -92,6 +93,7 @@ export class Game extends Scene {
 
         // --- 5. SONS ---
         this.jumpSound = this.sound.add("jump_sfx", { volume: 0.5 });
+        this.fallSound = this.sound.add("fall_sfx", { volume: 0.5 });
         this.collectSound = this.sound.add("pickup_sfx", { volume: 0.4 });
         this.stepSound = this.sound.add("step_sfx", { volume: 0.3 });
         this.slideSound = this.sound.add("slide_sfx", {
@@ -343,6 +345,7 @@ export class Game extends Scene {
             this.dustEmitter.explode(10);
             this.dustEmitter.followOffset.set(15, 12);
             this.dustEmitter.explode(10);
+            this.fallSound.play();
         }
 
         const isRunningFast = Math.abs(playerBody.velocity.x) > 10;
@@ -375,3 +378,4 @@ export class Game extends Scene {
         this.wasInAir = !isGrounded;
     }
 }
+
