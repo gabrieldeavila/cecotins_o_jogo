@@ -91,7 +91,7 @@ export class Game extends Scene {
         this.physics.add.collider(this.player, this.worldLayer!);
         this.player.setDepth(2);
 
-        // --- 5. CÂMERA ---
+        // --- 5. CÂMERA PRINCIPAL ---
         this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
         this.cameras.main.setBounds(
             0,
@@ -109,7 +109,26 @@ export class Game extends Scene {
         const zoomY = windowHeight / mapHeight;
         this.cameras.main.setZoom(Math.max(zoomX, zoomY));
 
-        // --- 6. SONS ---
+        // --- 6. ANIMAÇÕES (Criar antes para o minimapa poder ver se necessário) ---
+        this.createAnimations();
+
+        // --- 7. PARTÍCULAS ---
+        this.dustEmitter = this.add.particles(0, 0, "dust", {
+            lifespan: 300,
+            scale: { start: 0.6, end: 0 },
+            alpha: { start: 0.6, end: 0 },
+            speedY: { min: -20, max: -5 },
+            speedX: { min: -5, max: 5 },
+            frequency: -1,
+            blendMode: "NORMAL",
+        });
+        this.dustEmitter.startFollow(this.player);
+        this.dustEmitter.setDepth(1);
+
+        // --- 8. COLECIONÁVEIS ---
+        this.createCollectibles(map);
+
+        // --- 9. SONS ---
         this.jumpSound = this.sound.add("jump_sfx", { volume: 0.5 });
         this.fallSound = this.sound.add("fall_sfx", { volume: 0.5 });
         this.collectSound = this.sound.add("pickup_sfx", { volume: 0.4 });
@@ -131,24 +150,69 @@ export class Game extends Scene {
             });
         }
 
-        // --- 7. ANIMAÇÕES ---
-        this.createAnimations();
+        // --- 10. MINIMAPA (NOVO e CORRIGIDO) ---
+        // Criar por último para garantir que ele renderize tudo corretamente
+        this.createMinimap(map);
+    }
 
-        // --- 8. COLECIONÁVEIS ---
-        this.createCollectibles(map);
+    createMinimap(map: Phaser.Tilemaps.Tilemap) {
+        const size = 200; // Tamanho aumentado para 200px
+        const padding = 20; // Margem da borda
+        
+        // Posição: Canto Superior Direito
+        let x = this.scale.width - size - padding;
+        const y = padding;
 
-        // --- 9. PARTÍCULAS ---
-        this.dustEmitter = this.add.particles(0, 0, "dust", {
-            lifespan: 300,
-            scale: { start: 0.6, end: 0 },
-            alpha: { start: 0.6, end: 0 },
-            speedY: { min: -20, max: -5 },
-            speedX: { min: -5, max: 5 },
-            frequency: -1,
-            blendMode: "NORMAL",
+        // 1. FUNDO (UI): Um quadrado preto semi-transparente
+        // Usamos um Graphics separado para poder ter transparência real,
+        // já que setBackgroundColor da câmera é opaco.
+        const uiBg = this.add.graphics();
+        uiBg.setScrollFactor(0);
+        uiBg.setDepth(99); // Acima do jogo, abaixo da borda
+        uiBg.fillStyle(0x000022, 0.6); // Azul bem escuro, 60% opaco
+        uiBg.fillRect(x, y, size, size);
+
+        // 2. A CÂMERA DO MINIMAPA
+        const minimap = this.cameras.add(x, y, size, size)
+            .setZoom(0.5) // Zoom aumentado levemente para ver melhor
+            .setName('minimap')
+            .setAlpha(1); // O conteúdo do mapa é 100% visível
+
+        minimap.startFollow(this.player);
+        minimap.setBounds(0, 0, map.widthInPixels, map.heightInPixels);
+
+        // 3. BORDA (UI)
+        const border = this.add.graphics();
+        border.setScrollFactor(0);
+        border.setDepth(100);
+
+        const drawBorder = (bx: number, by: number) => {
+            border.clear();
+            border.lineStyle(2, 0xffffff, 0.8);
+            border.strokeRect(bx, by, size, size);
+        };
+        drawBorder(x, y);
+
+        // 4. LÓGICA DE IGNORE
+        // O minimapa NÃO deve renderizar os elementos de UI (fundo e borda),
+        // senão eles aparecem duplicados e pequenos dentro do minimapa.
+        minimap.ignore([uiBg, border, this.dustEmitter]);
+
+        // 5. REDIMENSIONAMENTO
+        this.scale.on('resize', (gameSize: Phaser.Structs.Size) => {
+            const newX = gameSize.width - size - padding;
+            
+            // Atualiza posição da Câmera
+            minimap.setPosition(newX, y);
+            
+            // Atualiza o Fundo
+            uiBg.clear();
+            uiBg.fillStyle(0x000022, 0.6);
+            uiBg.fillRect(newX, y, size, size);
+            
+            // Atualiza a Borda
+            drawBorder(newX, y);
         });
-        this.dustEmitter.startFollow(this.player);
-        this.dustEmitter.setDepth(1);
     }
 
     createAnimations() {
