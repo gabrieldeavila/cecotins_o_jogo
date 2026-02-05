@@ -4,6 +4,15 @@ import { GameInputContextData } from "../../context/game";
 export class Game extends Scene {
     player: Phaser.Physics.Arcade.Sprite;
     cursors: Phaser.Types.Input.Keyboard.CursorKeys;
+    // Teclas extras definidas explicitamente
+    keys: {
+        w: Phaser.Input.Keyboard.Key;
+        a: Phaser.Input.Keyboard.Key;
+        s: Phaser.Input.Keyboard.Key;
+        d: Phaser.Input.Keyboard.Key;
+        enter: Phaser.Input.Keyboard.Key;
+    };
+
     private worldLayer: Phaser.Tilemaps.TilemapLayer;
     private dustEmitter: Phaser.GameObjects.Particles.ParticleEmitter;
     private wasInAir: boolean = false;
@@ -32,14 +41,23 @@ export class Game extends Scene {
 
     create() {
         this.mobileControlsRef = this.registry.get("controlsRef");
-        console.log(this.mobileControlsRef);
-
+        
         // --- 1. CRIAR O MAPA ---
         const map = this.make.tilemap({ key: "mapa_fase1" });
         const tileset = map.addTilesetImage("terrain", "terrain-tiles");
         const tilesetBlue = map.addTilesetImage("Blue back", "blue-img");
 
+        // --- 2. CONTROLES ---
         this.cursors = this.input.keyboard!.createCursorKeys();
+        
+        // Mapeamento individual garante que o Phaser capture corretamente cada tecla
+        this.keys = {
+            w: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.W),
+            a: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.A),
+            s: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.S),
+            d: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.D),
+            enter: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER)
+        };
 
         // --- 3. CRIAR CAMADAS ---
         const bgLayer = map.createLayer("background", tilesetBlue!, 0, 0);
@@ -73,7 +91,7 @@ export class Game extends Scene {
         this.physics.add.collider(this.player, this.worldLayer!);
         this.player.setDepth(2);
 
-        // --- 4. CÂMERA ---
+        // --- 5. CÂMERA ---
         this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
         this.cameras.main.setBounds(
             0,
@@ -82,7 +100,7 @@ export class Game extends Scene {
             map.heightInPixels,
         );
 
-        // Zoom automático baseado no tamanho da janela
+        // Zoom automático
         const mapHeight = map.heightInPixels;
         const mapWidth = map.widthInPixels;
         const windowWidth = window.innerWidth;
@@ -114,30 +132,41 @@ export class Game extends Scene {
         }
 
         // --- 7. ANIMAÇÕES ---
+        this.createAnimations();
+
+        // --- 8. COLECIONÁVEIS ---
+        this.createCollectibles(map);
+
+        // --- 9. PARTÍCULAS ---
+        this.dustEmitter = this.add.particles(0, 0, "dust", {
+            lifespan: 300,
+            scale: { start: 0.6, end: 0 },
+            alpha: { start: 0.6, end: 0 },
+            speedY: { min: -20, max: -5 },
+            speedX: { min: -5, max: 5 },
+            frequency: -1,
+            blendMode: "NORMAL",
+        });
+        this.dustEmitter.startFollow(this.player);
+        this.dustEmitter.setDepth(1);
+    }
+
+    createAnimations() {
         this.anims.create({
             key: "strawberry_idle",
-            frames: this.anims.generateFrameNumbers("strawberry", {
-                start: 0,
-                end: 16,
-            }),
+            frames: this.anims.generateFrameNumbers("strawberry", { start: 0, end: 16 }),
             frameRate: 20,
             repeat: -1,
         });
         this.anims.create({
             key: "idle",
-            frames: this.anims.generateFrameNumbers("player_idle", {
-                start: 0,
-                end: 10,
-            }),
+            frames: this.anims.generateFrameNumbers("player_idle", { start: 0, end: 10 }),
             frameRate: 20,
             repeat: -1,
         });
         this.anims.create({
             key: "run",
-            frames: this.anims.generateFrameNumbers("player_run", {
-                start: 0,
-                end: 11,
-            }),
+            frames: this.anims.generateFrameNumbers("player_run", { start: 0, end: 11 }),
             frameRate: 20,
             repeat: -1,
         });
@@ -158,24 +187,19 @@ export class Game extends Scene {
         });
         this.anims.create({
             key: "double_jump",
-            frames: this.anims.generateFrameNumbers("player_double_jump", {
-                start: 0,
-                end: 5,
-            }),
+            frames: this.anims.generateFrameNumbers("player_double_jump", { start: 0, end: 5 }),
             frameRate: 20,
             repeat: 0,
         });
         this.anims.create({
             key: "collected",
-            frames: this.anims.generateFrameNumbers("collected", {
-                start: 0,
-                end: 6,
-            }),
+            frames: this.anims.generateFrameNumbers("collected", { start: 0, end: 6 }),
             frameRate: 20,
             repeat: 0,
         });
+    }
 
-        // --- 8. COLECIONÁVEIS ---
+    createCollectibles(map: Phaser.Tilemaps.Tilemap) {
         const fruits = this.physics.add.group({ allowGravity: false });
         const fruitPoints = map.filterObjects(
             "collectibles",
@@ -196,19 +220,6 @@ export class Game extends Scene {
             fruit.play("collected");
             fruit.on("animationcomplete", () => fruit.destroy());
         });
-
-        // --- 10. PARTÍCULAS ---
-        this.dustEmitter = this.add.particles(0, 0, "dust", {
-            lifespan: 300,
-            scale: { start: 0.6, end: 0 },
-            alpha: { start: 0.6, end: 0 },
-            speedY: { min: -20, max: -5 },
-            speedX: { min: -5, max: 5 },
-            frequency: -1,
-            blendMode: "NORMAL",
-        });
-        this.dustEmitter.startFollow(this.player);
-        this.dustEmitter.setDepth(1);
     }
 
     handleJump() {
@@ -217,7 +228,6 @@ export class Game extends Scene {
         const isTouchingWallForJump =
             (playerBody.blocked.left || playerBody.blocked.right) &&
             !isGrounded;
-        console.log("Jump pressed");
 
         if (isGrounded) {
             this.player.setVelocityY(-260);
@@ -256,32 +266,45 @@ export class Game extends Scene {
             this.canDoubleJump = true;
         }
 
-        if (
-            this.cursors.left.isDown ||
-            this.isLeftPressed ||
-            this.mobileControlsRef.current.left
-        ) {
+        // --- MOVIMENTAÇÃO (Setas, WASD, Mobile) ---
+        const isMovingLeft = 
+            this.cursors.left.isDown || 
+            this.keys.a.isDown || 
+            this.isLeftPressed || 
+            this.mobileControlsRef.current.left;
+
+        const isMovingRight = 
+            this.cursors.right.isDown || 
+            this.keys.d.isDown || 
+            this.isRightPressed || 
+            this.mobileControlsRef.current.right;
+
+        if (isMovingLeft) {
             this.player.setVelocityX(-speed);
             this.player.setFlipX(true);
-        } else if (
-            this.cursors.right.isDown ||
-            this.isRightPressed ||
-            this.mobileControlsRef.current.right
-        ) {
+        } else if (isMovingRight) {
             this.player.setVelocityX(speed);
             this.player.setFlipX(false);
         } else {
             this.player.setVelocityX(0);
         }
 
+        // --- PULO (Cima, Space, W, Enter, Mobile) ---
         const mobileJump = this.mobileControlsRef.current.jump;
+        const jumpJustPressed = 
+            Phaser.Input.Keyboard.JustDown(this.cursors.up) || 
+            Phaser.Input.Keyboard.JustDown(this.cursors.space) || // Adicionado Space
+            Phaser.Input.Keyboard.JustDown(this.keys.w) || 
+            Phaser.Input.Keyboard.JustDown(this.keys.enter);
 
-        if (Phaser.Input.Keyboard.JustDown(this.cursors.up) || mobileJump) {
+        if (jumpJustPressed || mobileJump) {
             this.handleJump();
 
+            // Reseta o pulo mobile para evitar "pulo infinito" ou auto-fire
             if (mobileJump) this.mobileControlsRef.current.jump = false;
         }
 
+        // --- LÓGICA DE WALL SLIDE E ANIMAÇÕES ---
         const isTouchingWall =
             (playerBody.blocked.left || playerBody.blocked.right) &&
             !isGrounded;
@@ -372,4 +395,3 @@ export class Game extends Scene {
         this.wasInAir = !isGrounded;
     }
 }
-
