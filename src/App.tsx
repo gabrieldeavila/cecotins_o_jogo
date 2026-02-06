@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import { IRefPhaserGame, PhaserGame } from "./PhaserGame";
-import Joystick from "./game/ux/joystick";
 import { GameInputProvider } from "./context/game";
+import Joystick from "./game/ux/joystick";
 
 function App() {
     //  References to the PhaserGame component (game and scene are exposed)
