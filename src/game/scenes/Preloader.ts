@@ -39,6 +39,11 @@ export class Preloader extends Scene {
             frameHeight: 32,
         });
 
+        this.load.spritesheet("finish", "End (Idle).png", {
+            frameWidth: 64,
+            frameHeight: 64,
+        });
+
         this.load.spritesheet("collected", "Collected.png", {
             frameWidth: 32,
             frameHeight: 32,
