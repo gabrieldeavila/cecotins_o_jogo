@@ -10,6 +10,9 @@ export interface LevelConfig {
     tileSetBackground: string;
     bgMusicKey: string;
     blueTileKey?: string;
+    // Parallax para camadas do Tiled (opcional)
+    // Ex: [{ name: 'Nuvens', speed: 0.3 }, { name: 'Montanhas', speed: 0.5 }]
+    parallaxLayers?: { name: string; speed: number }[];
 }
 
 export abstract class BaseScene extends Scene {
@@ -21,6 +24,10 @@ export abstract class BaseScene extends Scene {
     // Camadas e Mapa
     protected map: Phaser.Tilemaps.Tilemap;
     protected worldLayer: Phaser.Tilemaps.TilemapLayer;
+    protected backgroundLayers: Phaser.Tilemaps.TilemapLayer[] = [];
+    
+    // Fundo Infinito (Parallax do Céu)
+    protected skyBackground: Phaser.GameObjects.TileSprite;
     
     // Estado do Personagem
     protected wasInAir: boolean = false;
@@ -54,7 +61,7 @@ export abstract class BaseScene extends Scene {
         const config = this.getLevelConfig();
         this.mobileControlsRef = this.registry.get("controlsRef");
 
-        // 1. Criar animações globais primeiro
+        // 1. Criar animações globais
         this.createGlobalAnimations();
 
         // 2. Setup básico e Mapa
@@ -81,19 +88,44 @@ export abstract class BaseScene extends Scene {
     private setupMap(config: LevelConfig) {
         this.map = this.make.tilemap({ key: config.mapId });
         const tileset = this.map.addTilesetImage("terrain", config.tileSetTerrain);
-        const tilesetBlue = this.map.addTilesetImage("Blue back", config.blueTileKey || "blue-img");
-
-        const bgLayer = this.map.createLayer("background", tilesetBlue!, 0, 0);
-        this.worldLayer = this.map.createLayer("world", tileset!, 0, 0)!;
         
+        // Usamos a chave de fundo definida na config (geralmente 'blue-img')
+        const bgKey = config.blueTileKey || config.tileSetBackground;
+        const tilesetBlue = this.map.addTilesetImage("Blue back", bgKey);
+
+        // --- BACKGROUND INFINITO (Céu/Fundo fixo que repete) ---
+        // Pegamos o tamanho da tela para o TileSprite preencher tudo
+        const width = this.scale.width;
+        const height = this.scale.height;
+        
+        this.skyBackground = this.add.tileSprite(0, 0, width, height, bgKey);
+        this.skyBackground.setOrigin(0, 0);
+        this.skyBackground.setScrollFactor(0); // Fica preso na câmera
+        this.skyBackground.setDepth(-100);    // Fica atrás de tudo
+        
+        // --- CAMADAS DE PARALLAX DO TILED ---
+        if (config.parallaxLayers && config.parallaxLayers.length > 0) {
+            config.parallaxLayers.forEach((layerData, index) => {
+                const layer = this.map.createLayer(layerData.name, tilesetBlue!, 0, 0);
+                if (layer) {
+                    layer.setDepth(-50 + index);
+                    // Define a velocidade de movimento em relação à câmera
+                    layer.setScrollFactor(layerData.speed);
+                    this.backgroundLayers.push(layer);
+                }
+            });
+        }
+
+        // Camada principal do mundo (Chão/Paredes)
+        this.worldLayer = this.map.createLayer("world", tileset!, 0, 0)!;
         this.worldLayer.setCollisionByExclusion([-1]);
+        this.worldLayer.setDepth(0);
+
         this.worldLayer.forEachTile((tile) => {
             if (tile.properties.through) {
                 tile.setCollision(false, false, true, false);
             }
         });
-
-        if (bgLayer) bgLayer.setDepth(-2);
     }
 
     protected setupPhysics() {
@@ -101,7 +133,6 @@ export abstract class BaseScene extends Scene {
             this.physics.add.collider(this.player, this.worldLayer);
         }
 
-        // Colisão do troféu com o chão
         if (this.finishPoint && this.worldLayer) {
             this.physics.add.collider(this.finishPoint, this.worldLayer);
         }
@@ -126,24 +157,22 @@ export abstract class BaseScene extends Scene {
         // Setup Finish (Troféu)
         if (finishData) {
             this.finishPoint = this.physics.add.sprite(finishData.x!, finishData.y!, "finish");
-            this.finishPoint.setScale(0.5);
+            this.finishPoint.setScale(0.5); // Escala reduzida para ficar proporcional
             this.finishPoint.setOrigin(0.5, 1); 
             this.finishPoint.setDepth(1);
-            
-            // Inicialmente invisível e sem colisão
             this.finishPoint.setVisible(false);
             
             if (this.finishPoint.body) {
                 const body = this.finishPoint.body as Phaser.Physics.Arcade.Body;
                 body.enable = false;
                 
+                // Hitbox ajustado para o sprite de 64x64 original
                 body.setSize(44, 46); 
                 body.setOffset(10, 18); 
                 
                 body.setBounce(0, 0);
                 body.setFriction(1, 1);
                 body.setImmovable(true); 
-                
                 this.finishPoint.setCollideWorldBounds(true);
             }
             
@@ -200,10 +229,26 @@ export abstract class BaseScene extends Scene {
 
     update() {
         if (!this.player || !this.player.body) return;
-
+        
         this.handleMovement();
         this.handleAnimations();
         this.handleGroundEffects();
+        
+        // --- ATUALIZAÇÃO DO PARALLAX DO CÉU ---
+        if (this.skyBackground) {
+            // Movemos a textura internamente para criar o efeito de parallax infinito
+            this.skyBackground.tilePositionX = this.cameras.main.scrollX * 0.1;
+            this.skyBackground.tilePositionY = this.cameras.main.scrollY * 0.1;
+        }
+
+        // Estabiliza o troféu no chão
+        if (this.finishPoint && this.finishPoint.body) {
+            const finishBody = this.finishPoint.body as Phaser.Physics.Arcade.Body;
+            if (finishBody.blocked.down) {
+                finishBody.setAllowGravity(false);
+                finishBody.setVelocity(0, 0);
+            }
+        }
     }
 
     protected handleMovement() {
@@ -355,7 +400,6 @@ export abstract class BaseScene extends Scene {
     private createGlobalAnimations() {
         if (this.anims.exists('idle')) return; 
 
-        // Animação da Strawberry
         this.anims.create({
             key: "strawberry_idle",
             frames: this.anims.generateFrameNumbers("strawberry", { start: 0, end: 16 }),
@@ -363,7 +407,6 @@ export abstract class BaseScene extends Scene {
             repeat: -1,
         });
 
-        // Animação do Troféu (64x64)
         this.anims.create({
             key: "finish_idle",
             frames: this.anims.generateFrameNumbers("finish", { start: 0, end: 7 }),
@@ -411,7 +454,6 @@ export abstract class BaseScene extends Scene {
             f.body?.setOffset(9, 9);
         });
 
-        // Caso a fase não tenha coletáveis, libera o finish imediatamente
         if (this.collectiblesGroup.countActive(true) === 0) {
             this.activateFinish();
         }
@@ -424,7 +466,6 @@ export abstract class BaseScene extends Scene {
             
             fruit.on("animationcomplete", () => {
                 fruit.destroy();
-                // Verifica se todos foram coletados para liberar o troféu
                 if (this.collectiblesGroup.countActive(true) === 0) {
                     this.activateFinish();
                 }
@@ -437,17 +478,13 @@ export abstract class BaseScene extends Scene {
             this.finishPoint.setVisible(true);
             this.finishPoint.body.enable = true;
             this.finishPoint.setAlpha(0);
-            
-            // Efeito de fade-in e animação
             this.tweens.add({
                 targets: this.finishPoint,
                 alpha: 1,
                 duration: 500,
                 ease: 'Power2'
             });
-            
             this.finishPoint.play("finish_idle");
-            console.log("Troféu liberado! Corra para o objetivo!");
         }
     }
 }
