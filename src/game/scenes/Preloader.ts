@@ -92,6 +92,11 @@ export class Preloader extends Scene {
         this.load.audio("fall_sfx", "sounds/fall.wav");
 
         this.load.audio("theme_music", "music/theme.mp3");
+
+        // crab
+        for (let i = 1; i <= 9; i++) {
+            this.load.image(`crab_idle_${i}`, `crab/Idle 0${i}.png`);
+        }
     }
 
     create() {

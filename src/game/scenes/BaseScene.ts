@@ -10,8 +10,6 @@ export interface LevelConfig {
     tileSetBackground: string;
     bgMusicKey: string;
     blueTileKey?: string;
-    // Parallax para camadas do Tiled (opcional)
-    // Ex: [{ name: 'Nuvens', speed: 0.3 }, { name: 'Montanhas', speed: 0.5 }]
     parallaxLayers?: { name: string; speed: number }[];
 }
 
@@ -20,15 +18,15 @@ export abstract class BaseScene extends Scene {
     protected player: Phaser.Physics.Arcade.Sprite;
     protected cursors: Phaser.Types.Input.Keyboard.CursorKeys;
     protected keys: any;
-    
+
     // Camadas e Mapa
     protected map: Phaser.Tilemaps.Tilemap;
     protected worldLayer: Phaser.Tilemaps.TilemapLayer;
     protected backgroundLayers: Phaser.Tilemaps.TilemapLayer[] = [];
-    
-    // Fundo Infinito (Parallax do Céu)
+
+    // Fundo Infinito
     protected skyBackground: Phaser.GameObjects.TileSprite;
-    
+
     // Estado do Personagem
     protected wasInAir: boolean = false;
     protected canDoubleJump: boolean = false;
@@ -36,11 +34,12 @@ export abstract class BaseScene extends Scene {
     protected wallSlideTimer: number = 0;
     protected dustTimer: number = 0;
 
-    // Efeitos e Itens
+    // Efeitos, Itens e Mobs
     protected dustEmitter: Phaser.GameObjects.Particles.ParticleEmitter;
     protected collectiblesGroup: Phaser.Physics.Arcade.Group;
+    protected mobsGroup: Phaser.Physics.Arcade.Group;
     protected finishPoint: Phaser.Physics.Arcade.Sprite;
-    
+
     // Áudio
     protected sounds: { [key: string]: Phaser.Sound.BaseSound } = {};
     protected bgMusic: Phaser.Sound.BaseSound;
@@ -52,71 +51,67 @@ export abstract class BaseScene extends Scene {
         super(key);
     }
 
-    /**
-     * Método abstrato: Cada fase deve retornar suas configurações únicas
-     */
     abstract getLevelConfig(): LevelConfig;
 
     create() {
         const config = this.getLevelConfig();
         this.mobileControlsRef = this.registry.get("controlsRef");
 
-        // 1. Criar animações globais
         this.createGlobalAnimations();
-
-        // 2. Setup básico e Mapa
         this.setupMap(config);
-        
-        // 3. Setup de Controles
         this.setupControls();
-        
-        // 4. Criar o Player e o Finish (Troféu)
         this.setupPlayerAndFinish();
-        
-        // 5. Setup de física e itens
-        this.setupPhysics();
+
+        // Setup de grupos antes da física
+        this.mobsGroup = this.physics.add.group();
+        this.collectiblesGroup = this.physics.add.group({
+            allowGravity: false,
+        });
+
+        this.createMobs(this.map);
         this.createCollectibles(this.map);
-        
-        // 6. Restante dos sistemas
+
+        this.setupPhysics();
         this.setupAudio(config);
         this.setupParticles();
         this.setupCamera();
-        
+
         this.afterCreate();
     }
 
     private setupMap(config: LevelConfig) {
         this.map = this.make.tilemap({ key: config.mapId });
-        const tileset = this.map.addTilesetImage("terrain", config.tileSetTerrain);
-        
-        // Usamos a chave de fundo definida na config (geralmente 'blue-img')
+        const tileset = this.map.addTilesetImage(
+            "terrain",
+            config.tileSetTerrain,
+        );
         const bgKey = config.blueTileKey || config.tileSetBackground;
         const tilesetBlue = this.map.addTilesetImage("Blue back", bgKey);
 
-        // --- BACKGROUND INFINITO (Céu/Fundo fixo que repete) ---
-        // Pegamos o tamanho da tela para o TileSprite preencher tudo
         const width = this.scale.width;
         const height = this.scale.height;
-        
+
         this.skyBackground = this.add.tileSprite(0, 0, width, height, bgKey);
         this.skyBackground.setOrigin(0, 0);
-        this.skyBackground.setScrollFactor(0); // Fica preso na câmera
-        this.skyBackground.setDepth(-100);    // Fica atrás de tudo
-        
-        // --- CAMADAS DE PARALLAX DO TILED ---
-        if (config.parallaxLayers && config.parallaxLayers.length > 0) {
+        this.skyBackground.setScrollFactor(0);
+        this.skyBackground.setDepth(-100);
+
+        if (config.parallaxLayers) {
             config.parallaxLayers.forEach((layerData, index) => {
-                const layer = this.map.createLayer(layerData.name, tilesetBlue!, 0, 0);
+                const layer = this.map.createLayer(
+                    layerData.name,
+                    tilesetBlue!,
+                    0,
+                    0,
+                );
                 if (layer) {
                     layer.setDepth(-50 + index);
-                    // Define a velocidade de movimento em relação à câmera
                     layer.setScrollFactor(layerData.speed);
                     this.backgroundLayers.push(layer);
                 }
             });
         }
 
-        // Camada principal do mundo (Chão/Paredes)
         this.worldLayer = this.map.createLayer("world", tileset!, 0, 0)!;
         this.worldLayer.setCollisionByExclusion([-1]);
         this.worldLayer.setDepth(0);
@@ -136,51 +131,150 @@ export abstract class BaseScene extends Scene {
         if (this.finishPoint && this.worldLayer) {
             this.physics.add.collider(this.finishPoint, this.worldLayer);
         }
+
+        // Física para os Inimigos
+        if (this.mobsGroup && this.worldLayer) {
+            this.physics.add.collider(this.mobsGroup, this.worldLayer);
+
+            // Colisão Player vs Inimigo
+            this.physics.add.overlap(this.player, this.mobsGroup, () => {
+                this.onPlayerDeath();
+            });
+        }
     }
 
     private setupPlayerAndFinish() {
         const playerLayer = this.map.getObjectLayer("player");
-        
-        if (!playerLayer) {
-            console.warn("Camada de objetos 'player' não encontrada!");
-        }
+        const spawnPoint = playerLayer?.objects.find(
+            (obj) => obj.name === "PlayerSpawn",
+        );
+        const finishData = playerLayer?.objects.find(
+            (obj) => obj.name === "Finish",
+        );
 
-        const spawnPoint = playerLayer?.objects.find(obj => obj.name === "PlayerSpawn");
-        const finishData = playerLayer?.objects.find(obj => obj.name === "Finish");
-
-        // Setup Player
-        this.player = this.physics.add.sprite(spawnPoint?.x || 100, spawnPoint?.y || 300, "player_idle");
+        this.player = this.physics.add.sprite(
+            spawnPoint?.x || 100,
+            spawnPoint?.y || 300,
+            "player_idle",
+        );
         this.player.body?.setSize(18, 25);
         this.player.setCollideWorldBounds(true);
         this.player.setDepth(2);
 
-        // Setup Finish (Troféu)
         if (finishData) {
-            this.finishPoint = this.physics.add.sprite(finishData.x!, finishData.y!, "finish");
-            this.finishPoint.setScale(0.5); // Escala reduzida para ficar proporcional
-            this.finishPoint.setOrigin(0.5, 1); 
+            this.finishPoint = this.physics.add.sprite(
+                finishData.x!,
+                finishData.y!,
+                "finish",
+            );
+            this.finishPoint.setScale(0.5);
+            this.finishPoint.setOrigin(0.5, 1);
             this.finishPoint.setDepth(1);
             this.finishPoint.setVisible(false);
-            
+
             if (this.finishPoint.body) {
-                const body = this.finishPoint.body as Phaser.Physics.Arcade.Body;
+                const body = this.finishPoint
+                    .body as Phaser.Physics.Arcade.Body;
                 body.enable = false;
-                
-                // Hitbox ajustado para o sprite de 64x64 original
-                body.setSize(44, 46); 
-                body.setOffset(10, 18); 
-                
-                body.setBounce(0, 0);
-                body.setFriction(1, 1);
-                body.setImmovable(true); 
+                body.setSize(44, 46);
+                body.setOffset(10, 18);
+                body.setImmovable(true);
                 this.finishPoint.setCollideWorldBounds(true);
             }
-            
+
             this.physics.add.overlap(this.player, this.finishPoint, () => {
                 this.onLevelComplete();
             });
         }
     }
+
+    private createMobs(map: Phaser.Tilemaps.Tilemap) {
+        const enemyLayer = map.getObjectLayer("enemies");
+
+        enemyLayer?.objects.forEach((obj) => {
+            // Ajustado: Usamos 'crab_idle_1' como textura inicial para bater com o Preloader
+            const initialTexture = this.textures.exists("crab_idle_1") ? "crab_idle_1" : "player_idle";
+            
+            const mob = this.mobsGroup.create(
+                obj.x,
+                obj.y,
+                initialTexture
+            ) as Phaser.Physics.Arcade.Sprite;
+
+            mob.setOrigin(0.5, 1);
+            mob.body?.setSize(28, 20); // Hitbox do caranguejo
+            mob.setCollideWorldBounds(true);
+
+            mob.setVelocityX(-60);
+            mob.setFlipX(false);
+
+            // Tocar animação do mob
+            if (this.anims.exists("crab_idle")) {
+                mob.play("crab_idle");
+            }
+        });
+    }
+
+    update() {
+        if (!this.player || !this.player.body) return;
+
+        this.handleMovement();
+        this.handleAnimations();
+        this.handleGroundEffects();
+        this.handleMobsAI();
+
+        if (this.skyBackground) {
+            this.skyBackground.tilePositionX = this.cameras.main.scrollX * 0.1;
+            this.skyBackground.tilePositionY = this.cameras.main.scrollY * 0.1;
+        }
+
+        if (this.finishPoint && this.finishPoint.body) {
+            const finishBody = this.finishPoint
+                .body as Phaser.Physics.Arcade.Body;
+            if (finishBody.blocked.down) {
+                finishBody.setAllowGravity(false);
+                finishBody.setVelocity(0, 0);
+            }
+        }
+    }
+
+    protected handleMobsAI() {
+        this.mobsGroup.children.entries.forEach((m) => {
+            const mob = m as Phaser.Physics.Arcade.Sprite;
+            const body = mob.body as Phaser.Physics.Arcade.Body;
+
+            // Se bater numa parede ou chegar ao fim da plataforma, inverte
+            if (body.blocked.left || body.blocked.right) {
+                const newVelocity = body.velocity.x * -1;
+                mob.setVelocityX(newVelocity);
+                mob.setFlipX(newVelocity > 0);
+            }
+        });
+    }
+
+    protected onPlayerDeath() {
+        console.log("Player morreu!");
+        this.sounds.fall?.play();
+        this.cameras.main.shake(200, 0.01);
+
+        this.player.setTint(0xff0000);
+        this.physics.pause();
+
+        this.time.delayedCall(500, () => {
+            this.scene.restart();
+        });
+    }
+
+    protected onLevelComplete() {
+        console.log("Fase concluída!");
+        this.player.setVelocity(0);
+        if (this.player.body) {
+            this.player.body.enable = false;
+        }
+    }
+
+    /** Gancho para ser sobrescrito nas fases filhas se necessário */
+    protected afterCreate() {}
 
     private setupControls() {
         this.cursors = this.input.keyboard!.createCursorKeys();
@@ -189,8 +283,12 @@ export abstract class BaseScene extends Scene {
             a: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.A),
             s: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.S),
             d: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.D),
-            enter: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER),
-            space: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE),
+            enter: this.input.keyboard!.addKey(
+                Phaser.Input.Keyboard.KeyCodes.ENTER,
+            ),
+            space: this.input.keyboard!.addKey(
+                Phaser.Input.Keyboard.KeyCodes.SPACE,
+            ),
         };
     }
 
@@ -200,10 +298,16 @@ export abstract class BaseScene extends Scene {
         this.sounds.collect = this.sound.add("pickup_sfx", { volume: 0.4 });
         this.sounds.step = this.sound.add("step_sfx", { volume: 0.3 });
         this.sounds.slide = this.sound.add("slide_sfx", { volume: 0.2 });
-        
-        this.bgMusic = this.sound.add(config.bgMusicKey, { volume: 0.1, loop: true });
+
+        this.bgMusic = this.sound.add(config.bgMusicKey, {
+            volume: 0.1,
+            loop: true,
+        });
         if (!this.sound.locked) this.bgMusic.play();
-        else this.sound.once(Phaser.Sound.Events.UNLOCKED, () => this.bgMusic.play());
+        else
+            this.sound.once(Phaser.Sound.Events.UNLOCKED, () =>
+                this.bgMusic.play(),
+            );
     }
 
     private setupParticles() {
@@ -221,34 +325,18 @@ export abstract class BaseScene extends Scene {
 
     private setupCamera() {
         this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
-        this.cameras.main.setBounds(0, 0, this.map.widthInPixels, this.map.heightInPixels);
-        
-        const zoom = Math.max(window.innerWidth / this.map.widthInPixels, window.innerHeight / this.map.heightInPixels);
+        this.cameras.main.setBounds(
+            0,
+            0,
+            this.map.widthInPixels,
+            this.map.heightInPixels,
+        );
+
+        const zoom = Math.max(
+            window.innerWidth / this.map.widthInPixels,
+            window.innerHeight / this.map.heightInPixels,
+        );
         this.cameras.main.setZoom(zoom);
-    }
-
-    update() {
-        if (!this.player || !this.player.body) return;
-        
-        this.handleMovement();
-        this.handleAnimations();
-        this.handleGroundEffects();
-        
-        // --- ATUALIZAÇÃO DO PARALLAX DO CÉU ---
-        if (this.skyBackground) {
-            // Movemos a textura internamente para criar o efeito de parallax infinito
-            this.skyBackground.tilePositionX = this.cameras.main.scrollX * 0.1;
-            this.skyBackground.tilePositionY = this.cameras.main.scrollY * 0.1;
-        }
-
-        // Estabiliza o troféu no chão
-        if (this.finishPoint && this.finishPoint.body) {
-            const finishBody = this.finishPoint.body as Phaser.Physics.Arcade.Body;
-            if (finishBody.blocked.down) {
-                finishBody.setAllowGravity(false);
-                finishBody.setVelocity(0, 0);
-            }
-        }
     }
 
     protected handleMovement() {
@@ -258,8 +346,14 @@ export abstract class BaseScene extends Scene {
 
         if (isGrounded) this.canDoubleJump = true;
 
-        const isMovingLeft = this.keys.a.isDown || this.cursors.left.isDown || this.mobileControlsRef.current.left;
-        const isMovingRight = this.keys.d.isDown || this.cursors.right.isDown || this.mobileControlsRef.current.right;
+        const isMovingLeft =
+            this.keys.a.isDown ||
+            this.cursors.left.isDown ||
+            this.mobileControlsRef.current.left;
+        const isMovingRight =
+            this.keys.d.isDown ||
+            this.cursors.right.isDown ||
+            this.mobileControlsRef.current.right;
 
         if (isMovingLeft) {
             this.player.setVelocityX(-speed);
@@ -271,15 +365,17 @@ export abstract class BaseScene extends Scene {
             this.player.setVelocityX(0);
         }
 
-        const jumpJustPressed = Phaser.Input.Keyboard.JustDown(this.cursors.up) || 
-                               Phaser.Input.Keyboard.JustDown(this.keys.w) || 
-                               Phaser.Input.Keyboard.JustDown(this.keys.space) || 
-                               Phaser.Input.Keyboard.JustDown(this.keys.enter) ||
-                               this.mobileControlsRef.current.jump;
+        const jumpJustPressed =
+            Phaser.Input.Keyboard.JustDown(this.cursors.up) ||
+            Phaser.Input.Keyboard.JustDown(this.keys.w) ||
+            Phaser.Input.Keyboard.JustDown(this.keys.space) ||
+            Phaser.Input.Keyboard.JustDown(this.keys.enter) ||
+            this.mobileControlsRef.current.jump;
 
         if (jumpJustPressed) {
             this.performJump();
-            if (this.mobileControlsRef.current.jump) this.mobileControlsRef.current.jump = false;
+            if (this.mobileControlsRef.current.jump)
+                this.mobileControlsRef.current.jump = false;
         }
     }
 
@@ -289,7 +385,7 @@ export abstract class BaseScene extends Scene {
             this.player.setVelocityY(-260);
             this.sounds.jump.play();
             this.explodeDust(8);
-        } else if ((playerBody.blocked.left || playerBody.blocked.right)) {
+        } else if (playerBody.blocked.left || playerBody.blocked.right) {
             const dir = playerBody.blocked.left ? 1 : -1;
             this.player.setVelocityX(240 * dir);
             this.player.setVelocityY(-260);
@@ -309,7 +405,9 @@ export abstract class BaseScene extends Scene {
         const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
         const isGrounded = playerBody.blocked.down;
         const isFalling = playerBody.velocity.y > 0;
-        const isTouchingWall = (playerBody.blocked.left || playerBody.blocked.right) && !isGrounded;
+        const isTouchingWall =
+            (playerBody.blocked.left || playerBody.blocked.right) &&
+            !isGrounded;
 
         let isWallSliding = false;
 
@@ -318,14 +416,19 @@ export abstract class BaseScene extends Scene {
             isWallSliding = true;
             this.wallSlideTimer++;
             if (this.wallSlideTimer >= 15) {
-                this.sounds.slide.play({ volume: 0.2, detune: Phaser.Math.Between(-50, 50) });
+                this.sounds.slide.play({
+                    volume: 0.2,
+                    detune: Phaser.Math.Between(-50, 50),
+                });
                 this.wallSlideTimer = 0;
             }
         } else {
             this.wallSlideTimer = 10;
         }
 
-        const isDoubleJumping = this.player.anims.currentAnim?.key === "double_jump" && this.player.anims.isPlaying;
+        const isDoubleJumping =
+            this.player.anims.currentAnim?.key === "double_jump" &&
+            this.player.anims.isPlaying;
 
         if (isWallSliding) {
             this.player.anims.play("wall_jump", true);
@@ -374,7 +477,10 @@ export abstract class BaseScene extends Scene {
 
             this.stepTimer++;
             if (this.stepTimer >= 20) {
-                this.sounds.step.play({ volume: 0.3, detune: Phaser.Math.Between(-100, 100) });
+                this.sounds.step.play({
+                    volume: 0.3,
+                    detune: Phaser.Math.Between(-100, 100),
+                });
                 this.stepTimer = 0;
             }
         }
@@ -387,69 +493,113 @@ export abstract class BaseScene extends Scene {
         this.dustEmitter.explode(count);
     }
 
-    protected onLevelComplete() {
-        console.log("Fase concluída!");
-        this.player.setVelocity(0);
-        if (this.player.body) {
-            this.player.body.enable = false;
-        }
-    }
-
-    protected afterCreate() {}
-    
     private createGlobalAnimations() {
-        if (this.anims.exists('idle')) return; 
+        if (this.anims.exists("idle")) return;
+
+        // Animação do Caranguejo (PNGs Individuais)
+        const crabFrames = [];
+        for (let i = 1; i <= 9; i++) {
+            const key = `crab_idle_${i}`;
+            if (this.textures.exists(key)) {
+                crabFrames.push({ key });
+            }
+        }
+
+        if (crabFrames.length > 0) {
+            this.anims.create({
+                key: "crab_idle",
+                frames: crabFrames,
+                frameRate: 10,
+                repeat: -1,
+            });
+        }
 
         this.anims.create({
             key: "strawberry_idle",
-            frames: this.anims.generateFrameNumbers("strawberry", { start: 0, end: 16 }),
+            frames: this.anims.generateFrameNumbers("strawberry", {
+                start: 0,
+                end: 16,
+            }),
             frameRate: 20,
             repeat: -1,
         });
 
         this.anims.create({
             key: "finish_idle",
-            frames: this.anims.generateFrameNumbers("finish", { start: 0, end: 7 }),
+            frames: this.anims.generateFrameNumbers("finish", {
+                start: 0,
+                end: 7,
+            }),
             frameRate: 15,
             repeat: -1,
         });
 
         this.anims.create({
             key: "idle",
-            frames: this.anims.generateFrameNumbers("player_idle", { start: 0, end: 10 }),
+            frames: this.anims.generateFrameNumbers("player_idle", {
+                start: 0,
+                end: 10,
+            }),
             frameRate: 20,
             repeat: -1,
         });
         this.anims.create({
             key: "run",
-            frames: this.anims.generateFrameNumbers("player_run", { start: 0, end: 11 }),
+            frames: this.anims.generateFrameNumbers("player_run", {
+                start: 0,
+                end: 11,
+            }),
             frameRate: 20,
             repeat: -1,
         });
-        this.anims.create({ key: "jump", frames: [{ key: "player_jump", frame: 0 }], frameRate: 20 });
-        this.anims.create({ key: "fall", frames: [{ key: "player_fall", frame: 0 }], frameRate: 20 });
-        this.anims.create({ key: "wall_jump", frames: [{ key: "player_wall_jump", frame: 0 }], frameRate: 20 });
+        this.anims.create({
+            key: "jump",
+            frames: [{ key: "player_jump", frame: 0 }],
+            frameRate: 20,
+        });
+        this.anims.create({
+            key: "fall",
+            frames: [{ key: "player_fall", frame: 0 }],
+            frameRate: 20,
+        });
+        this.anims.create({
+            key: "wall_jump",
+            frames: [{ key: "player_wall_jump", frame: 0 }],
+            frameRate: 20,
+        });
         this.anims.create({
             key: "double_jump",
-            frames: this.anims.generateFrameNumbers("player_double_jump", { start: 0, end: 5 }),
+            frames: this.anims.generateFrameNumbers("player_double_jump", {
+                start: 0,
+                end: 5,
+            }),
             frameRate: 20,
             repeat: 0,
         });
         this.anims.create({
             key: "collected",
-            frames: this.anims.generateFrameNumbers("collected", { start: 0, end: 6 }),
+            frames: this.anims.generateFrameNumbers("collected", {
+                start: 0,
+                end: 6,
+            }),
             frameRate: 20,
             repeat: 0,
         });
     }
 
     private createCollectibles(map: Phaser.Tilemaps.Tilemap) {
-        this.collectiblesGroup = this.physics.add.group({ allowGravity: false });
-        const fruitPoints = map.filterObjects("collectibles", (obj) => obj.name !== "Strawberry");
+        const fruitPoints = map.filterObjects(
+            "collectibles",
+            (obj) => obj.name !== "Strawberry",
+        );
 
         fruitPoints?.forEach((point) => {
-            const f = this.collectiblesGroup.create(point.x, point.y, "strawberry");
-            f.play("strawberry_idle"); 
+            const f = this.collectiblesGroup.create(
+                point.x,
+                point.y,
+                "strawberry",
+            );
+            f.play("strawberry_idle");
             f.body?.setSize(14, 14);
             f.body?.setOffset(9, 9);
         });
@@ -458,19 +608,23 @@ export abstract class BaseScene extends Scene {
             this.activateFinish();
         }
 
-        this.physics.add.overlap(this.player, this.collectiblesGroup, (_p, f) => {
-            const fruit = f as Phaser.Physics.Arcade.Sprite;
-            if (fruit.body) fruit.body.enable = false;
-            this.sounds.collect.play();
-            fruit.play("collected");
-            
-            fruit.on("animationcomplete", () => {
-                fruit.destroy();
-                if (this.collectiblesGroup.countActive(true) === 0) {
-                    this.activateFinish();
-                }
-            });
-        });
+        this.physics.add.overlap(
+            this.player,
+            this.collectiblesGroup,
+            (_p, f) => {
+                const fruit = f as Phaser.Physics.Arcade.Sprite;
+                if (fruit.body) fruit.body.enable = false;
+                this.sounds.collect.play();
+                fruit.play("collected");
+
+                fruit.on("animationcomplete", () => {
+                    fruit.destroy();
+                    if (this.collectiblesGroup.countActive(true) === 0) {
+                        this.activateFinish();
+                    }
+                });
+            },
+        );
     }
 
     private activateFinish() {
@@ -482,7 +636,7 @@ export abstract class BaseScene extends Scene {
                 targets: this.finishPoint,
                 alpha: 1,
                 duration: 500,
-                ease: 'Power2'
+                ease: "Power2",
             });
             this.finishPoint.play("finish_idle");
         }

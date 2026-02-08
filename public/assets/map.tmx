@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<map version="1.10" tiledversion="1.11.2" orientation="orthogonal" renderorder="right-down" width="32" height="16" tilewidth="16" tileheight="16" infinite="0" nextlayerid="9" nextobjectid="26">
+<map version="1.10" tiledversion="1.11.2" orientation="orthogonal" renderorder="right-down" width="32" height="16" tilewidth="16" tileheight="16" infinite="0" nextlayerid="10" nextobjectid="27">
  <editorsettings>
   <export target="level1.json" format="json"/>
  </editorsettings>
@@ -99,6 +99,11 @@
    <point/>
   </object>
   <object id="25" name="Finish" x="358.416" y="54.4554">
+   <point/>
+  </object>
+ </objectgroup>
+ <objectgroup id="9" name="enemies" offsetx="1.48515" offsety="-3.46535">
+  <object id="26" name="badguy" x="32.6733" y="228.218">
    <point/>
   </object>
  </objectgroup>
