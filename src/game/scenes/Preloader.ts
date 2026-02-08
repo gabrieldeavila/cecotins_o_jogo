@@ -95,7 +95,11 @@ export class Preloader extends Scene {
 
         // crab
         for (let i = 1; i <= 9; i++) {
-            this.load.image(`crab_idle_${i}`, `crab/Idle 0${i}.png`);
+            this.load.image(`crab_idle_${i}`, `crab/01-Idle/Idle 0${i}.png`);
+        }
+
+        for (let i = 1; i <= 6; i++) {
+            this.load.image(`crab_run_${i}`, `crab/02-Run/Run 0${i}.png`);
         }
     }
 
