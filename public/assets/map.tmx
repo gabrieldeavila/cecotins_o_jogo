@@ -103,7 +103,7 @@
   </object>
  </objectgroup>
  <objectgroup id="9" name="enemies" offsetx="1.48515" offsety="-3.46535">
-  <object id="26" name="badguy" x="32.6733" y="228.218">
+  <object id="26" name="badguy" x="31.1882" y="241.584">
    <point/>
   </object>
  </objectgroup>
