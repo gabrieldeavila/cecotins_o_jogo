@@ -95,7 +95,7 @@
   </object>
  </objectgroup>
  <objectgroup id="5" name="player">
-  <object id="22" name="PlayerSpawn" x="263.649" y="186.628">
+  <object id="22" name="PlayerSpawn" x="81.4708" y="44.0537">
    <point/>
   </object>
   <object id="25" name="Finish" x="358.416" y="54.4554">
